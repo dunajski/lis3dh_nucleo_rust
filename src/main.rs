@@ -6,8 +6,6 @@ use panic_halt as _;
 
 use stm32g0::stm32g071::{self, interrupt, Interrupt, NVIC};
 
-// use cortex_m::interrupt::free as critical_section; // I've to change it because stm32g0 got `interrupt` too.
-
 static mut G_BLINK_RATE: u32 = 0;
 
 enum ButtonState {
@@ -16,18 +14,15 @@ enum ButtonState {
     Pressed,
 }
 
+
 #[entry]
 fn main() -> ! {
     unsafe {
         let p = stm32g071::Peripherals::steal();
 
-        let gpioa = &p.GPIOA;
-        let gpioc = &p.GPIOC;
         let clock_r = &p.RCC;
-        let tim3_r = p.TIM3;
-
         // enable GPIOA and GPIOC clocks
-        clock_r.iopenr.modify(|_, w| {
+        clock_r.iopenr.write(|w| {
             w.iopaen().set_bit();
             w.iopcen().set_bit()
         });
@@ -35,33 +30,41 @@ fn main() -> ! {
         // enable clock for TIM3
         clock_r.apbenr1.write(|w| w.tim3en().set_bit());
 
+        let tim3_r = p.TIM3;
         prepare_tim3(&tim3_r);
 
         NVIC::unmask(Interrupt::TIM3);
 
         // Nucleo G071RB has LED on PA5
+        let gpioa = &p.GPIOA;
         gpioa.moder.modify(|_, w| w.moder5().bits(0b01));
 
         // ... and Blue Button on PC13, which is hardware pulled to VDD
         // moder reset value == 0, anyway sets as input
+        let gpioc = &p.GPIOC;
         gpioc.moder.write(|w| w.moder13().bits(0b00));
+    }
 
-        // critical_section(|cs| G_BLINK_RATE.borrow(cs).set(0));
+    loop {
+        handle_blinking();
+    }
+}
 
-        let mut delay_cnt = 0u32;
+fn handle_blinking() {
+    unsafe {
+        static mut DELAY_CNT: u32 = 0;
+
         let gpioa = stm32g071::Peripherals::steal().GPIOA;
 
-        loop {
-            if delay_cnt < G_BLINK_RATE {
-                delay_cnt += 1;
+        if DELAY_CNT < G_BLINK_RATE {
+            DELAY_CNT += 1;
+        } else {
+            if gpioa.odr.read().odr5().bit_is_set() {
+                gpioa.odr.modify(|_, w| w.odr5().clear_bit());
             } else {
-                if gpioa.odr.read().odr5().bit_is_set() {
-                    gpioa.odr.modify(|_, w| w.odr5().clear_bit());
-                } else {
-                    gpioa.odr.modify(|_, w| w.odr5().set_bit());
-                }
-                delay_cnt = 0;
+                gpioa.odr.modify(|_, w| w.odr5().set_bit());
             }
+            DELAY_CNT = 0;
         }
     }
 }
@@ -115,10 +118,10 @@ fn TIM3() {
 
 fn change_blinking_ratio() {
     unsafe {
-        if G_BLINK_RATE == 0xFF_FF {
-            G_BLINK_RATE = 0x0F_FF;
-        } else {
+        if G_BLINK_RATE == 0x4_FF_FF {
             G_BLINK_RATE = 0xFF_FF;
+        } else {
+            G_BLINK_RATE = 0x4_FF_FF;
         }
     }
 }
