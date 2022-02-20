@@ -14,36 +14,35 @@ enum ButtonState {
     Pressed,
 }
 
-
 #[entry]
 fn main() -> ! {
+    let p = stm32g071::Peripherals::take().unwrap();
+
+    let clock_r = &p.RCC;
+    // enable GPIOA and GPIOC clocks
+    clock_r.iopenr.write(|w| {
+        w.iopaen().set_bit();
+        w.iopcen().set_bit()
+    });
+
+    // enable clock for TIM3
+    clock_r.apbenr1.write(|w| w.tim3en().set_bit());
+
+    let tim3_r = p.TIM3;
+    prepare_tim3(&tim3_r);
+
     unsafe {
-        let p = stm32g071::Peripherals::steal();
-
-        let clock_r = &p.RCC;
-        // enable GPIOA and GPIOC clocks
-        clock_r.iopenr.write(|w| {
-            w.iopaen().set_bit();
-            w.iopcen().set_bit()
-        });
-
-        // enable clock for TIM3
-        clock_r.apbenr1.write(|w| w.tim3en().set_bit());
-
-        let tim3_r = p.TIM3;
-        prepare_tim3(&tim3_r);
-
         NVIC::unmask(Interrupt::TIM3);
-
-        // Nucleo G071RB has LED on PA5
-        let gpioa = &p.GPIOA;
-        gpioa.moder.modify(|_, w| w.moder5().bits(0b01));
-
-        // ... and Blue Button on PC13, which is hardware pulled to VDD
-        // moder reset value == 0, anyway sets as input
-        let gpioc = &p.GPIOC;
-        gpioc.moder.write(|w| w.moder13().bits(0b00));
     }
+
+    // Nucleo G071RB has LED on PA5
+    let gpioa = &p.GPIOA;
+    gpioa.moder.modify(unsafe { |_, w| w.moder5().bits(0b01) });
+
+    // ... and Blue Button on PC13, which is hardware pulled to VDD
+    // moder reset value == 0, even that set as input
+    let gpioc = &p.GPIOC;
+    gpioc.moder.write(unsafe { |w| w.moder13().bits(0b00) });
 
     loop {
         handle_blinking();
@@ -51,11 +50,10 @@ fn main() -> ! {
 }
 
 fn handle_blinking() {
+    static mut DELAY_CNT: u32 = 0;
+    let gpioa = unsafe { stm32g071::Peripherals::steal().GPIOA };
+
     unsafe {
-        static mut DELAY_CNT: u32 = 0;
-
-        let gpioa = stm32g071::Peripherals::steal().GPIOA;
-
         if DELAY_CNT < G_BLINK_RATE {
             DELAY_CNT += 1;
         } else {

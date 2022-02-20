@@ -13,7 +13,7 @@
         "servertype": "openocd",
         "cwd": "${workspaceRoot}",
         "preLaunchTask": "cargo build",
-        "runToMain": true,
+        "runToEntryPoint": "main",
         "executable": "./target/thumbv6m-none-eabi/debug/lis3dh_nucleo_rust",
         "device": "STM32G071RB",
         "configFiles": [
