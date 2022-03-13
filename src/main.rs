@@ -6,7 +6,9 @@ use panic_halt as _;
 
 use stm32g0::stm32g071::{self, interrupt, Interrupt, NVIC};
 
-static mut G_BLINK_RATE: u32 = 0;
+mod uart;
+
+static mut G_BLINK_RATE: u32 = 0xFF_FF;
 
 enum ButtonState {
     Unpressed,
@@ -36,13 +38,20 @@ fn main() -> ! {
     }
 
     // Nucleo G071RB has LED on PA5
-    let gpioa = &p.GPIOA;
-    gpioa.moder.modify(unsafe { |_, w| w.moder5().bits(0b01) });
+    let gpioa_r = &p.GPIOA;
+    gpioa_r
+        .moder
+        .modify(unsafe { |_, w| w.moder5().bits(0b01) });
 
     // ... and Blue Button on PC13, which is hardware pulled to VDD
     // moder reset value == 0, even that set as input
-    let gpioc = &p.GPIOC;
-    gpioc.moder.write(unsafe { |w| w.moder13().bits(0b00) });
+    let gpioc_r = &p.GPIOC;
+    gpioc_r.moder.write(unsafe { |w| w.moder13().bits(0b00) });
+
+    uart::init_uart();
+
+
+    uart::put_to_serial(b"Application started.\n");
 
     loop {
         handle_blinking();
@@ -84,7 +93,7 @@ fn TIM3() {
 
         // clear ISR invoking bit
         let tim3 = stm32g071::Peripherals::steal().TIM3;
-        tim3.sr.write(|w| w.uif().clear_bit());
+        tim3.sr.modify(|_, w| w.uif().clear_bit());
 
         if *KEY_CNT == 0 {
             match KEY_LEVEL {
@@ -97,6 +106,8 @@ fn TIM3() {
                 ButtonState::Debouncing => {
                     if press_state {
                         change_blinking_ratio();
+                        let msg = b"Blue button was pressed\n";
+                        uart::put_to_serial(msg);
                     }
                     *KEY_LEVEL = ButtonState::Pressed;
                 }
