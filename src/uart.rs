@@ -7,6 +7,42 @@ struct CircularBuff {
     wi: usize,
 }
 
+impl CircularBuff {
+    fn put_byte(&mut self, byte: u8) {
+        self.buf[self.wi] = byte;
+
+        if self.wi == BUFF_SIZE - 1 {
+            self.wi = 0;
+        } else {
+            self.wi += 1;
+        }
+    }
+
+    fn put_bytes(&mut self, bytes: &[u8])
+    {
+        for b in bytes {
+            self.put_byte(*b);
+        }
+    }
+
+    fn get_byte(&mut self) -> (u8, bool) {
+        let mut byte_found = false;
+        let mut byte = b'\0';
+        if self.wi != self.ri {
+            byte = self.buf[self.ri];
+            byte_found = true;
+
+            if self.ri == BUFF_SIZE - 1 {
+                self.ri = 0;
+            }
+            else {
+                self.ri += 1;
+            }
+        }
+        (byte, byte_found)
+    }
+}
+
 static mut TX_CBUF : CircularBuff = CircularBuff {buf: [0; BUFF_SIZE], wi:0, ri:0};
 // static mut RX_CBUF : CircularBuff = CircularBuff {buf: [0; BUFF_SIZE], wi:0, ri:0};
 
@@ -69,44 +105,15 @@ pub fn put_to_serial(buff: &[u8])
 {
     let usart2_r = unsafe { stm32g071::Peripherals::steal().USART2 };
     unsafe {
-        // put all bytes to cbuffer
-        for b in buff {
-            TX_CBUF.buf[TX_CBUF.wi] = *b;
-            
-            if TX_CBUF.wi == BUFF_SIZE - 1 {
-                TX_CBUF.wi = 0;
-            } else {
-                TX_CBUF.wi += 1;
-            }
-        }
-        usart2_r.tdr.write(|w| { w.bits(TX_CBUF.buf[TX_CBUF.ri] as u32) });
-        TX_CBUF.ri += 1;
+        TX_CBUF.put_bytes(buff);
+        let (byte, _) = TX_CBUF.get_byte();
+
+        usart2_r.tdr.write(|w| { w.bits(byte as u32)});
+
         usart2_r.cr1.modify(|_, w| {
             w.tcie().set_bit()
         });
     }
-}
-
-fn get_next_byte() -> (u8, bool) {
-    let mut byte = b'\0';
-    let mut result = false;
-
-    unsafe {
-        // check if read index is diffrent from write index
-        // if true means that there is something to put to serial
-        if TX_CBUF.ri != TX_CBUF.wi {
-            byte = TX_CBUF.buf[TX_CBUF.ri];
-            // if it is last index, move to the beginning of cbuf
-            if TX_CBUF.ri == BUFF_SIZE - 1 {
-                TX_CBUF.ri = 0;
-            } else {
-                TX_CBUF.ri += 1;
-            }
-            result = true;
-        }
-    }
-
-    return (byte, result);
 }
 
 #[interrupt]
@@ -128,14 +135,16 @@ fn USART2() {
             w.tccf().set_bit()
         });
 
-        let (byte, result) = get_next_byte();
+        unsafe {
+            let (byte, result) = TX_CBUF.get_byte();
             if result == false {
                 usart2_r.cr1.modify(|_, w| {
                     w.tcie().clear_bit()
                 });
             }
             else {
-                usart2_r.tdr.write(|w| unsafe { w.bits(byte as u32) });
+                usart2_r.tdr.write(|w| { w.bits(byte as u32) });
             }
+        }
     }
 }
