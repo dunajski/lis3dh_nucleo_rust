@@ -50,11 +50,11 @@ fn main() -> ! {
 
     uart::init_uart();
 
-
     uart::put_to_serial(b"Application started.\n");
 
     loop {
         handle_blinking();
+        uart::rx_buffer_read();
     }
 }
 
